@@ -1,0 +1,359 @@
+<!--
+  Squarespace header code injection for the Iran War Cost Tracker page.
+  Paste this whole file into: Page Settings → Advanced → Page Header Code Injection.
+
+  v2: the ticker values now come from tracker.json (GitHub Pages, updated daily
+  by this repo's Action). Load order on the tracker page:
+    1. paint immediately from the last good response cached in localStorage
+       (or, failing that, the hardcoded FALLBACK_DATA below),
+    2. fetch tracker.json with a 3s timeout,
+    3. re-render from the fresh values when the fetch resolves.
+  A stale number beats a blank ticker; a failed fetch changes nothing visually.
+
+  The "Last Updated" date is driven by the JSON too — the page's text block
+  must contain: <span id="gl-last-updated">July 17th, 2026</span>
+  (keep a real date inside the span as the pre-JS placeholder).
+-->
+<style>
+  .gl-ticker-outer {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    width: 100%;
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+  }
+
+  .gl-ticker-container {
+    display: block;
+    width: 100%;
+    max-width: 680px;
+    min-width: 0;
+    box-sizing: border-box;
+    padding: clamp(20px, 3vw, 28px) clamp(22px, 4vw, 44px);
+    background: linear-gradient(145deg, #0b1f3a, #0e2a52);
+    border-radius: 14px;
+    box-shadow:
+      inset 0 1px 0 rgba(255,255,255,0.05),
+      0 8px 24px rgba(0,0,0,0.35);
+    color: #ffffff;
+    text-align: left;
+    overflow: hidden;
+  }
+
+  .gl-ticker-title {
+    font-family: system-ui, sans-serif;
+    font-size: clamp(1.2rem, 2.5vw, 1.8rem);
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    color: #ffffff;
+    margin: 0 0 6px 0;
+    line-height: 1.08;
+  }
+
+  .gl-ticker-subtitle {
+    font-family: system-ui, sans-serif;
+    font-size: clamp(0.9rem, 1.8vw, 1.2rem);
+    line-height: 1.3;
+    color: #ffffff;
+    margin: 0 0 18px 0;
+    max-width: 40rem;
+  }
+
+  #gl-ticker,
+  #gl-household-ticker,
+  #gl-oil-price-increase,
+  .gl-ticker-value {
+    display: block;
+    font-family: system-ui, sans-serif;
+    font-size: clamp(1.6rem, 4.8vw, 3rem);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+    color: #ffffff;
+    line-height: 1.05;
+    max-width: 100%;
+    transform-origin: left center;
+  }
+
+  @media screen and (max-width: 760px) {
+    .gl-ticker-container {
+      padding: 22px 24px;
+      border-radius: 12px;
+    }
+
+    .gl-ticker-title {
+      font-size: clamp(1.1rem, 4vw, 1.5rem);
+    }
+
+    .gl-ticker-subtitle {
+      font-size: clamp(0.85rem, 3vw, 1rem);
+    }
+
+    #gl-ticker,
+    #gl-household-ticker,
+    #gl-oil-price-increase,
+    .gl-ticker-value {
+      font-size: clamp(1.45rem, 6.5vw, 2.25rem);
+      letter-spacing: 0;
+    }
+  }
+
+  @media screen and (max-width: 520px) {
+    .gl-ticker-container {
+      padding: 20px 22px;
+      border-radius: 10px;
+    }
+
+    #gl-ticker,
+    #gl-household-ticker,
+    #gl-oil-price-increase,
+    .gl-ticker-value {
+      font-size: clamp(1.35rem, 6vw, 2rem);
+    }
+  }
+
+  .dw-embed-wrap {
+    width: 100%;
+    max-width: 100%;
+    margin: 0;
+    padding: 0;
+    line-height: 0;
+  }
+
+  .dw-embed-wrap iframe {
+    display: block;
+    width: 100% !important;
+    min-width: 100% !important;
+    border: none;
+    margin: 0;
+    padding: 0;
+    height: 410px;
+  }
+</style>
+
+<script>
+document.addEventListener("DOMContentLoaded", function () {
+
+  // =========================
+  // DATA SOURCE (methodology v2 — updated daily by GitHub Actions)
+  // =========================
+  const TRACKER_URL = 'https://greenline-insights.github.io/Iran-War-Cost-Tracker/tracker.json';
+  const FETCH_TIMEOUT_MS = 3000;
+  const CACHE_KEY = 'gl-tracker-cache-v2';
+
+  // Fallback: used only when both the fetch and the localStorage cache are
+  // unavailable. These are the last v1-published values; anchor_iso is the
+  // exact instant the old parseAnchorDate produced (00:01 ET on the anchor
+  // date). Refresh these occasionally when touching this file.
+  const FALLBACK_DATA = {
+    anchor_total_usd: '122300359076.9',
+    rate_per_second_usd: '5951.6',
+    anchor_iso: '2026-07-17T00:01:00-04:00',
+    pct_above_baseline: '43',
+    household_factor: '0.00000000545075500193309',
+    last_updated_display: 'July 17th, 2026'
+  };
+
+  const tickerEl = document.getElementById('gl-ticker');
+  const householdTickerEl = document.getElementById('gl-household-ticker');
+  const oilPriceIncreaseEl = document.getElementById('gl-oil-price-increase');
+  const lastUpdatedEl = document.getElementById('gl-last-updated');
+
+  // Bail before any network activity so non-tracker pages never hit the endpoint.
+  if (!tickerEl) return;
+
+  const MICROS_PER_DOLLAR = 1000000n;
+
+  const formatter = new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: 0
+  });
+
+  let baseMicros;
+  let rateMicrosPerSecond;
+  let anchorMs;
+  let householdFactorNumerator;
+  let householdFactorDenominator;
+  let displayMicros = null;
+  let renderStarted = false;
+
+  function parseDecimalToMicros(valueStr) {
+    const cleaned = String(valueStr).replace(/[$,\s]/g, '');
+    const [wholePart, fracPartRaw = ''] = cleaned.split('.');
+    const fracPart = (fracPartRaw + '000000').slice(0, 6);
+    return BigInt(wholePart) * MICROS_PER_DOLLAR + BigInt(fracPart);
+  }
+
+  // "0.00000000545075500193309" -> { numerator: 545075500193309n,
+  //                                  denominator: 10n ** 23n }
+  function parseDecimalToFraction(valueStr) {
+    const [wholePart, fracPart = ''] = String(valueStr).trim().split('.');
+    return {
+      numerator: BigInt(wholePart + fracPart),
+      denominator: 10n ** BigInt(fracPart.length)
+    };
+  }
+
+  function microsToFormattedCurrency(micros) {
+    const rounded = Number((micros + 500000n) / MICROS_PER_DOLLAR);
+    return formatter.format(rounded);
+  }
+
+  function computeHouseholdMicros(totalMicros) {
+    return (totalMicros * householdFactorNumerator) / householdFactorDenominator;
+  }
+
+  function computeValue(now) {
+    const elapsed = Math.max(0, now - anchorMs);
+    return baseMicros + (rateMicrosPerSecond * BigInt(elapsed)) / 1000n;
+  }
+
+  function fitValue(el) {
+    if (!el) return;
+
+    el.style.transform = 'scaleX(1)';
+
+    const parent = el.parentElement;
+    if (!parent) return;
+
+    const available = parent.clientWidth;
+    const needed = el.scrollWidth;
+
+    if (needed > available) {
+      const scale = Math.max(0.55, available / needed);
+      el.style.transform = 'scaleX(' + scale + ')';
+    }
+  }
+
+  function fitAllValues() {
+    fitValue(tickerEl);
+    fitValue(householdTickerEl);
+    fitValue(oilPriceIncreaseEl);
+  }
+
+  function render() {
+    const exact = computeValue(Date.now());
+
+    if (displayMicros == null) {
+      displayMicros = exact;
+    } else {
+      const gap = exact - displayMicros;
+      const step = gap / 5n > rateMicrosPerSecond / 120n
+        ? gap / 5n
+        : rateMicrosPerSecond / 120n;
+      displayMicros += step > gap ? gap : step;
+    }
+
+    tickerEl.textContent = microsToFormattedCurrency(displayMicros);
+
+    if (householdTickerEl) {
+      householdTickerEl.textContent =
+        microsToFormattedCurrency(computeHouseholdMicros(displayMicros));
+    }
+
+    fitAllValues();
+
+    requestAnimationFrame(render);
+  }
+
+  function isValidData(data) {
+    return !!data &&
+      ['anchor_total_usd', 'rate_per_second_usd', 'anchor_iso',
+       'pct_above_baseline', 'household_factor', 'last_updated_display']
+        .every(function (k) { return typeof data[k] === 'string' && data[k].length > 0; }) &&
+      Number.isFinite(new Date(data.anchor_iso).getTime());
+  }
+
+  // Applies a data object (fallback, cached, or freshly fetched) and starts
+  // the render loop on first call. Later calls just swap the numbers; the
+  // easing in render() absorbs the correction.
+  function applyData(data) {
+    baseMicros = parseDecimalToMicros(data.anchor_total_usd);
+    rateMicrosPerSecond = parseDecimalToMicros(data.rate_per_second_usd);
+    anchorMs = new Date(data.anchor_iso).getTime();
+
+    const factor = parseDecimalToFraction(data.household_factor);
+    householdFactorNumerator = factor.numerator;
+    householdFactorDenominator = factor.denominator;
+
+    if (oilPriceIncreaseEl) {
+      oilPriceIncreaseEl.textContent =
+        Number(data.pct_above_baseline).toLocaleString('en-US', {
+          maximumFractionDigits: 1
+        }) + '%';
+    }
+
+    if (lastUpdatedEl) {
+      lastUpdatedEl.textContent = data.last_updated_display;
+    }
+
+    if (renderStarted) return;
+    renderStarted = true;
+
+    displayMicros = computeValue(Date.now());
+
+    tickerEl.textContent = microsToFormattedCurrency(displayMicros);
+
+    if (householdTickerEl) {
+      householdTickerEl.textContent =
+        microsToFormattedCurrency(computeHouseholdMicros(displayMicros));
+    }
+
+    fitAllValues();
+
+    window.addEventListener('resize', fitAllValues);
+
+    requestAnimationFrame(render);
+  }
+
+  function readCachedData() {
+    try {
+      const data = JSON.parse(localStorage.getItem(CACHE_KEY));
+      return isValidData(data) ? data : null;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Paint immediately from the last good response (or the fallback) ...
+  applyData(readCachedData() || FALLBACK_DATA);
+
+  // ... then refresh from the live JSON. Any failure (offline, timeout, bad
+  // payload) is swallowed: the ticker keeps running on what it already has.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(function () { controller.abort(); }, FETCH_TIMEOUT_MS);
+  fetch(TRACKER_URL, { signal: controller.signal })
+    .then(function (res) {
+      if (!res.ok) throw new Error('HTTP ' + res.status);
+      return res.json();
+    })
+    .then(function (data) {
+      if (!isValidData(data)) throw new Error('bad tracker payload');
+      try { localStorage.setItem(CACHE_KEY, JSON.stringify(data)); } catch (e) {}
+      applyData(data);
+    })
+    .catch(function () {})
+    .finally(function () { clearTimeout(timeoutId); });
+});
+</script>
+
+<script>
+window.addEventListener("message", function (event) {
+  if (event.data && event.data["datawrapper-height"]) {
+    var iframes = document.querySelectorAll(".dw-embed-wrap iframe");
+
+    for (var chartId in event.data["datawrapper-height"]) {
+      for (var i = 0; i < iframes.length; i++) {
+        if (iframes[i].contentWindow === event.source) {
+          iframes[i].style.height =
+            event.data["datawrapper-height"][chartId] + "px";
+        }
+      }
+    }
+  }
+});
+</script>
