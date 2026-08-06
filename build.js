@@ -273,9 +273,19 @@ function writeIfChanged(tracker, outPath) {
   return true;
 }
 
-function printSummary(tracker, days) {
-  const filled = days.filter((d, i) => i > 0 && days[i - 1].price === d.price).length;
+function printSummary(tracker, days, observations) {
+  const obsSample = [...observations.slice(0, 3), ...observations.slice(-3)]
+    .map((o) => `${o.date}=$${o.price}`)
+    .join('  ');
+  const weekend = [...days].reverse().find((d) => {
+    const dow = new Date(`${d.date}T12:00:00Z`).getUTCDay();
+    return dow === 0 || dow === 6;
+  });
   console.log('--- methodology v2 (daily) run summary -------------------------------');
+  console.log(`  spot-check observations: ${obsSample}`);
+  if (weekend) {
+    console.log(`  forward-fill check:      ${weekend.date} (weekend) carries $${weekend.price}`);
+  }
   console.log(`  calendar days covered:   ${days[0].date} → ${days[days.length - 1].date} (${days.length} days)`);
   console.log(`  latest Brent (RBRTE):    $${tracker.latest_price_usd_bbl}/bbl on ${tracker.last_price_date}`);
   console.log(`  above $${BASELINE_BRENT_USD} baseline:      ${tracker.pct_above_baseline}%`);
@@ -303,7 +313,7 @@ async function main() {
   console.log(`Got ${observations.length} trading-day observations (${observations[0].date} → ${observations[observations.length - 1].date}).`);
 
   const { tracker, days } = buildTracker(observations, new Date().toISOString());
-  printSummary(tracker, days);
+  printSummary(tracker, days, observations);
 
   if (writeIfChanged(tracker, OUT_PATH)) {
     console.log(`Wrote ${path.relative(process.cwd(), OUT_PATH)}`);
