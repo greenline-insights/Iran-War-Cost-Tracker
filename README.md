@@ -107,8 +107,11 @@ last known numbers ticking. The page's text block must contain
 1. **EIA API key** (free, instant): <https://www.eia.gov/opendata/>. Add it as
    the repository secret **`EIA_API_KEY`** (Settings → Secrets and variables →
    Actions).
-2. **GitHub Pages**: Settings → Pages → Deploy from a branch → `main`,
-   folder `/docs`. The JSON is then served at
+2. **GitHub Pages**: Settings → Pages → Build and deployment → Source:
+   **GitHub Actions**. The workflow's `deploy` job publishes `docs/` after
+   every data change (the branch-based "deploy from a branch" mode does not
+   work here: pushes made by the workflow's own token never trigger it, and
+   its deploy pipeline proved unreliable). The JSON is served at
    `https://greenline-insights.github.io/Iran-War-Cost-Tracker/tracker.json`
    with permissive CORS (`Access-Control-Allow-Origin: *`), so the Squarespace
    cross-origin fetch works. Pages caches for ~10 minutes — fine for a
