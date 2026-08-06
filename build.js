@@ -35,7 +35,9 @@ const FLOOR_NEGATIVE_DAMAGES = true;
 // U.S. household count) from the IMPLAN run. It changes ONLY when the IMPLAN
 // model is rerun — update the value here by hand when that happens. It is
 // passed through to tracker.json untouched; build.js does no math with it.
-const HOUSEHOLD_FACTOR = '0.0000000054508';
+// Full precision matters: the client turns it into an exact BigInt fraction
+// (545075500193309 / 10^23, the same pair the v1 script hardcoded).
+const HOUSEHOLD_FACTOR = '0.00000000545075500193309';
 
 // Last figures published under methodology v1 (weekly basis), kept only so
 // each run can print an old-vs-new comparison for sanity checking.

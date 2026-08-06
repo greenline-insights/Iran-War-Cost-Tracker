@@ -65,7 +65,7 @@ rerun.
   "anchor_iso": "2026-08-05T00:00:00-04:00",
   "anchor_total_usd": "128450218400.00",
   "rate_per_second_usd": "5096.24",
-  "household_factor": "0.0000000054508",
+  "household_factor": "0.00000000545075500193309",
   "last_updated_display": "August 5th, 2026"
 }
 ```
@@ -84,10 +84,23 @@ no client-side DST logic.
 ## Repo layout
 
 ```
-build.js                     # Node 20+ script, native fetch, no npm deps
-.github/workflows/update.yml # daily cron + manual dispatch
-docs/tracker.json            # build output, served by GitHub Pages
+build.js                         # Node 20+ script, native fetch, no npm deps
+.github/workflows/update.yml     # daily cron + manual dispatch
+docs/tracker.json                # build output, served by GitHub Pages
+squarespace-header-injection.html# canonical copy of the page's header injection
 ```
+
+## Client (Squarespace header injection)
+
+`squarespace-header-injection.html` is the canonical copy of the tracker
+page's header code injection — edit it here, then paste the whole file into
+Squarespace (Page Settings → Advanced → Page Header Code Injection). On page
+load it paints instantly from the last good response cached in
+`localStorage` (or a hardcoded fallback), fetches `tracker.json` with a 3s
+timeout, and re-renders when fresh data arrives; a failed fetch leaves the
+last known numbers ticking. The page's text block must contain
+`<span id="gl-last-updated">…</span>` — the script writes
+`last_updated_display` into it.
 
 ## Setup
 
