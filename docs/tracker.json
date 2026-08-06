@@ -1,0 +1,12 @@
+{
+  "methodology_version": "2.0-daily",
+  "generated_at": "2026-08-06T15:07:01.000Z",
+  "last_price_date": "2026-08-03",
+  "latest_price_usd_bbl": "88.90",
+  "pct_above_baseline": "53.28",
+  "anchor_iso": "2026-08-04T00:00:00-04:00",
+  "anchor_total_usd": "132913702622.11",
+  "rate_per_second_usd": "7356.63",
+  "household_factor": "0.00000000545075500193309",
+  "last_updated_display": "August 3rd, 2026"
+}
