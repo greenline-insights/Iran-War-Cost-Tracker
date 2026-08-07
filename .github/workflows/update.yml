@@ -13,6 +13,8 @@ permissions:
 jobs:
   update:
     runs-on: ubuntu-latest
+    outputs:
+      changed: ${{ steps.commit.outputs.changed }}
     steps:
       - uses: actions/checkout@v4
 
@@ -29,8 +31,10 @@ jobs:
       # runs find nothing new; build.js leaves the file untouched in that case
       # and this step commits nothing.
       - name: Commit and push if changed
+        id: commit
         run: |
           if [ -z "$(git status --porcelain -- docs/tracker.json)" ]; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
             echo "tracker.json unchanged — nothing to commit."
             exit 0
           fi
@@ -39,3 +43,38 @@ jobs:
           git add docs/tracker.json
           git commit -m "Update tracker data ($(date -u +%F))"
           git push
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+  # Publishes docs/ to GitHub Pages through the Actions deployment path
+  # (Pages "Source" must be set to "GitHub Actions"). We deploy from our own
+  # workflow because pushes made with the built-in workflow token do not
+  # trigger the branch-based Pages pipeline.
+  deploy:
+    needs: update
+    if: needs.update.outputs.changed == 'true' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    concurrency:
+      group: github-pages
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # the update job may have just pushed a new commit — deploy that,
+          # not the commit that triggered this run
+          ref: main
+
+      - uses: actions/configure-pages@v5
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+
+      - id: deployment
+        uses: actions/deploy-pages@v4
