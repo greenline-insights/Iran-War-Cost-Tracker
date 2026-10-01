@@ -368,11 +368,24 @@ async function main() {
     console.log('No substantive change (only generated_at differs) — tracker.json left untouched.');
   }
 
-  const history = buildHistory(observations, days);
-  if (writeTextIfChanged(serializeHistory(history), HISTORY_PATH)) {
-    console.log(`Wrote ${path.relative(process.cwd(), HISTORY_PATH)} (${history.days.length} days)`);
-  } else {
-    console.log('history.json unchanged.');
+  writeHistory(observations, days);
+}
+
+// history.json only feeds the pilot dashboard. A failure here must never fail
+// the build, or the workflow would skip committing tracker.json and the live
+// ticker would stop updating — so it logs a warning and carries on.
+function writeHistory(observations, days) {
+  try {
+    const history = buildHistory(observations, days);
+    if (writeTextIfChanged(serializeHistory(history), HISTORY_PATH)) {
+      console.log(`Wrote ${path.relative(process.cwd(), HISTORY_PATH)} (${history.days.length} days)`);
+    } else {
+      console.log('history.json unchanged.');
+    }
+    return true;
+  } catch (err) {
+    console.warn(`WARNING: history.json not written (tracker.json unaffected): ${err.message}`);
+    return false;
   }
 }
 
@@ -400,6 +413,7 @@ module.exports = {
   buildTracker,
   buildHistory,
   serializeHistory,
+  writeHistory,
   writeIfChanged,
   writeTextIfChanged,
 };

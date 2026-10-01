@@ -1,8 +1,9 @@
 name: Update tracker data
 
 on:
-  # Redeploy Pages when the dashboard page itself changes on main (the data
-  # rebuild in the update job is idempotent, so running it here is harmless).
+  # Redeploy Pages when the dashboard page itself changes on main. On these
+  # push runs the update job skips the data rebuild and commit entirely, so a
+  # dashboard edit can never touch tracker.json; only the deploy runs.
   push:
     branches: [main]
     paths: ['docs/dashboard.html']
@@ -24,10 +25,12 @@ jobs:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
+        if: github.event_name != 'push'
         with:
           node-version: '20'
 
       - name: Rebuild tracker.json and history.json
+        if: github.event_name != 'push'
         run: node build.js
         env:
           EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
@@ -36,6 +39,7 @@ jobs:
       # runs find nothing new; build.js leaves the file untouched in that case
       # and this step commits nothing.
       - name: Commit and push if changed
+        if: github.event_name != 'push'
         id: commit
         run: |
           if [ -z "$(git status --porcelain -- docs/tracker.json docs/history.json)" ]; then
