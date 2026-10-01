@@ -5,7 +5,9 @@
 //
 // Fetches daily Europe Brent spot prices (EIA series RBRTE) from the EIA v2
 // API, recomputes the full damages series from scratch, and writes
-// docs/tracker.json for GitHub Pages. Run: EIA_API_KEY=... node build.js
+// docs/tracker.json (live ticker inputs) and docs/history.json (the daily
+// series behind the dashboard charts) for GitHub Pages.
+// Run: EIA_API_KEY=... node build.js
 //
 // Requires Node 20+ (native fetch, full ICU for timezone offsets). No npm deps.
 
@@ -54,6 +56,7 @@ const EIA_SERIES = 'RBRTE'; // Europe Brent spot price FOB, daily
 const EIA_PAGE_SIZE = 5000; // EIA v2 max rows per request
 
 const OUT_PATH = path.join(__dirname, 'docs', 'tracker.json');
+const HISTORY_PATH = path.join(__dirname, 'docs', 'history.json');
 
 // ---------------------------------------------------------------------------
 // EIA fetch
@@ -253,24 +256,68 @@ function buildTracker(observations, generatedAt) {
   };
 }
 
+// Daily series for the dashboard charts: one row per calendar day, in the
+// same order and with the same floored damages that sum to
+// tracker.anchor_total_usd, so the last row's cumulative_usd equals it.
+// Plain JSON numbers (charts only — the ticker never reads this file),
+// rounded to cents so output is deterministic.
+const HISTORY_FIELDS = ['date', 'price_usd_bbl', 'observed', 'added_usd', 'cumulative_usd'];
+
+function buildHistory(observations, days) {
+  const observed = new Set(observations.map((o) => o.date));
+  let cumulative = 0;
+  const rows = days.map((day) => {
+    const added = dailyDamageUsd(day.price);
+    cumulative += added;
+    return [
+      day.date,
+      day.price,
+      observed.has(day.date), // false = forward-filled (weekend/holiday) or backfilled
+      Number(added.toFixed(2)),
+      Number(cumulative.toFixed(2)),
+    ];
+  });
+  return {
+    methodology_version: METHODOLOGY_VERSION,
+    start_date: WAR_START_DATE,
+    last_price_date: days[days.length - 1].date,
+    baseline_usd_bbl: BASELINE_BRENT_USD,
+    floor_negative_damages: FLOOR_NEGATIVE_DAMAGES,
+    fields: HISTORY_FIELDS,
+    days: rows,
+  };
+}
+
+// One day per line so the daily commit diff stays readable.
+function serializeHistory(history) {
+  const { days, ...head } = history;
+  const headLines = Object.entries(head).map(([k, v]) => `  ${JSON.stringify(k)}: ${JSON.stringify(v)}`);
+  const dayLines = days.map((row) => `    ${JSON.stringify(row)}`);
+  return `{\n${headLines.join(',\n')},\n  "days": [\n${dayLines.join(',\n')}\n  ]\n}\n`;
+}
+
 // ---------------------------------------------------------------------------
 // Output
 // ---------------------------------------------------------------------------
 const GENERATED_AT_LINE = /^\s*"generated_at":.*\n/m;
 
-// Writes tracker.json only when something besides generated_at changed, so
-// the workflow's git-diff guard skips days with no new EIA data.
-function writeIfChanged(tracker, outPath) {
-  const json = `${JSON.stringify(tracker, null, 2)}\n`;
+// Writes text to outPath only when it differs from the file on disk (after
+// removing ignorePattern from both), so the workflow's git-diff guard skips
+// days with no new EIA data.
+function writeTextIfChanged(text, outPath, ignorePattern) {
   if (fs.existsSync(outPath)) {
     const existing = fs.readFileSync(outPath, 'utf8');
-    if (existing.replace(GENERATED_AT_LINE, '') === json.replace(GENERATED_AT_LINE, '')) {
-      return false;
-    }
+    const strip = (t) => (ignorePattern ? t.replace(ignorePattern, '') : t);
+    if (strip(existing) === strip(text)) return false;
   }
   fs.mkdirSync(path.dirname(outPath), { recursive: true });
-  fs.writeFileSync(outPath, json);
+  fs.writeFileSync(outPath, text);
   return true;
+}
+
+// Writes tracker.json only when something besides generated_at changed.
+function writeIfChanged(tracker, outPath) {
+  return writeTextIfChanged(`${JSON.stringify(tracker, null, 2)}\n`, outPath, GENERATED_AT_LINE);
 }
 
 function printSummary(tracker, days, observations) {
@@ -320,6 +367,13 @@ async function main() {
   } else {
     console.log('No substantive change (only generated_at differs) — tracker.json left untouched.');
   }
+
+  const history = buildHistory(observations, days);
+  if (writeTextIfChanged(serializeHistory(history), HISTORY_PATH)) {
+    console.log(`Wrote ${path.relative(process.cwd(), HISTORY_PATH)} (${history.days.length} days)`);
+  } else {
+    console.log('history.json unchanged.');
+  }
 }
 
 if (require.main === module) {
@@ -344,5 +398,8 @@ module.exports = {
   ordinal,
   displayDate,
   buildTracker,
+  buildHistory,
+  serializeHistory,
   writeIfChanged,
+  writeTextIfChanged,
 };

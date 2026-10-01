@@ -74,6 +74,33 @@ All numerics are **decimal strings** — the client parses them into BigInt
 micros (`parseDecimalToMicros`); float JSON would break it. Key order and
 decimal places are fixed so output is byte-deterministic.
 
+## history.json contract
+
+The daily series behind the dashboard charts, written by the same run.
+One row per calendar day from 2026-02-27 through `last_price_date`, one row per
+line so the daily diff stays readable:
+
+```json
+{
+  "methodology_version": "2.0-daily",
+  "start_date": "2026-02-27",
+  "last_price_date": "2026-09-29",
+  "baseline_usd_bbl": 58,
+  "floor_negative_damages": true,
+  "fields": ["date","price_usd_bbl","observed","added_usd","cumulative_usd"],
+  "days": [
+    ["2026-02-27",70.9,true,265353060.94,265353060.94],
+    ...
+  ]
+}
+```
+
+`observed` is `false` for forward-filled (weekend/holiday) or backfilled days.
+`added_usd` is the floored daily damage; `cumulative_usd` on the last row equals
+`tracker.json`'s `anchor_total_usd`. Unlike tracker.json these are plain JSON
+numbers rounded to cents: only the charts read them, never the ticker. Clients
+should look columns up by name via `fields`.
+
 Anchor convention: `anchor_total_usd` is the cumulative total through the end
 of `last_price_date`; `anchor_iso` is midnight **America/New_York** at the
 start of the *next* day, with the correct numeric UTC offset for that date
@@ -86,8 +113,11 @@ no client-side DST logic.
 ```
 build.js                         # Node 20+ script, native fetch, no npm deps
 .github/workflows/update.yml     # daily cron + manual dispatch
-docs/tracker.json                # build output, served by GitHub Pages
+docs/tracker.json                # build output: live ticker inputs
+docs/history.json                # build output: daily series for the dashboard
+docs/dashboard.html              # interactive dashboard (pilot), served by Pages
 squarespace-header-injection.html# canonical copy of the page's header injection
+squarespace-dashboard-embed.html # Code Block snippet that iframes the dashboard
 ```
 
 ## Client (Squarespace header injection)
@@ -101,6 +131,22 @@ timeout, and re-renders when fresh data arrives; a failed fetch leaves the
 last known numbers ticking. The page's text block must contain
 `<span id="gl-last-updated">…</span>` — the script writes
 `last_updated_display` into it.
+
+## Dashboard (pilot)
+
+`docs/dashboard.html` is a standalone page (plain HTML/CSS/JS, no build step)
+served by GitHub Pages at
+`https://greenline-insights.github.io/Iran-War-Cost-Tracker/dashboard.html`.
+It reads `tracker.json` (live ticker, KPIs, scenario slider, pipeline status)
+and `history.json` (daily chart, selected-day detail, recent-days table); if
+`history.json` is missing it shows everything except the daily views.
+
+To put it on a Squarespace page, paste `squarespace-dashboard-embed.html`
+into a Code Block. The dashboard posts its height to the parent page
+(`gl-dashboard-height`) and the snippet resizes the iframe to fit, so the
+theme's CSS never touches it and changes ship by pushing to `main`, with
+nothing re-pasted. Pushing a change to `docs/dashboard.html` on `main`
+triggers the workflow, which redeploys Pages.
 
 ## Setup
 
