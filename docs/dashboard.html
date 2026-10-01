@@ -1,0 +1,851 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Iran War Cost Tracker: live dashboard</title>
+<meta name="description" content="Live running tab of added U.S. petroleum spending since February 27, 2026, from Greenline Insights.">
+<!--
+  Iran War Cost Tracker — live dashboard (pilot).
+
+  Served by GitHub Pages next to tracker.json and history.json, and embedded
+  on the Squarespace site in an iframe (see squarespace-dashboard-embed.html
+  at the repo root). Reads:
+    tracker.json  live ticker inputs (anchor, per-second rate, latest price)
+    history.json  daily series for the chart and recent-days table; optional —
+                  the page still works without it, minus the chart
+  When framed, it reports its height to the parent page so the iframe can
+  size itself (message key: "gl-dashboard-height"). Never size anything here
+  in vh: the iframe's height follows the page's, so vh would feed back.
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Montserrat:wght@500;600;700&family=Nunito:wght@400;600;700&display=swap">
+<style>
+  :root {
+    color-scheme: light;
+    --brand: #15561d;
+    --green-700: #0c5718;
+    --green-500: #307435;
+    --green-100: #acf3ad;
+    --amber: #cf7d00;
+    --amber-600: #bb6a00;
+    --amber-300: #e8a94d;
+    --amber-tint: #fbf1e1;
+    --ink: #111111;
+    --ink-2: #52514e;
+    --rule: #e6e5e2;
+    --chip: #f0efec;
+    --panel: #f6f6f3;
+    --neutral-bar: #d6d5d1;
+    --critical: #a3261b;
+    --display: Montserrat, Arial, sans-serif;
+    --body: Nunito, Arial, sans-serif;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: #ffffff; }
+  body { font-family: var(--body); color: var(--ink); font-size: 16px; line-height: 1.45; }
+  a { color: var(--green-700); }
+  a:hover { color: #003100; }
+  button { font: inherit; color: inherit; }
+  button:focus-visible, input:focus-visible, svg:focus-visible { outline: 3px solid var(--green-700); outline-offset: 2px; }
+  .num { font-variant-numeric: tabular-nums; }
+  .display { font-family: var(--display); font-weight: 700; }
+  .muted { color: var(--ink-2); }
+  .wrap { max-width: 1240px; margin: 0 auto; padding-left: 32px; padding-right: 32px; }
+  h2 { margin: 0; font-family: var(--display); font-weight: 600; font-size: 26px; }
+  h3 { margin: 0; font-size: 15px; font-weight: 700; }
+  .sec-head { display: flex; flex-direction: column; gap: 6px; }
+  .sec-head p { margin: 0; font-size: 15px; color: var(--ink-2); max-width: 52em; }
+
+  /* header */
+  .top { background: var(--brand); color: #fff; }
+  .top-in { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px 24px; padding-top: 14px; padding-bottom: 14px; }
+  .brand { display: flex; align-items: center; gap: 14px; }
+  .wordmark { font-family: var(--display); font-weight: 700; font-size: 17px; letter-spacing: 0.02em; }
+  .brand .sep { width: 1px; height: 20px; background: rgba(255,255,255,0.45); }
+  .brand .name { font-size: 15px; font-weight: 600; }
+  .top-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; font-size: 14px; }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: rgba(0,0,0,0.22); }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green-100); display: inline-block; animation: pulse 1.8s ease-out infinite; }
+  @keyframes pulse { 0% { box-shadow: 0 0 0 0 rgba(172,243,173,.9); } 70% { box-shadow: 0 0 0 8px rgba(172,243,173,0); } 100% { box-shadow: 0 0 0 0 rgba(172,243,173,0); } }
+  @media (prefers-reduced-motion: reduce) { .dot { animation: none; } }
+
+  main { display: flex; flex-direction: column; gap: 56px; padding-top: 44px; padding-bottom: 32px; }
+  .banner { border: 2px solid var(--amber-600); background: var(--amber-tint); border-radius: 10px; padding: 14px 18px; font-size: 15px; }
+
+  /* hero */
+  .hero { display: flex; flex-direction: column; gap: 28px; }
+  .hero-main { display: flex; flex-direction: column; gap: 14px; min-width: 0; }
+  .eyebrow { font-size: 13px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: var(--green-700); }
+  .ticker { font-family: var(--display); font-weight: 700; font-size: clamp(30px, 7.4vw, 84px); line-height: 1; letter-spacing: -0.01em; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .lede { margin: 0; font-size: 17px; line-height: 1.5; color: var(--ink-2); max-width: 40em; }
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; }
+  .chip { display: inline-flex; align-items: center; gap: 8px; padding: 8px 14px; border-radius: 8px; background: var(--chip); font-size: 15px; }
+  .chip.amber { background: var(--amber-tint); }
+  .swatch { width: 10px; height: 10px; border-radius: 2px; background: var(--amber); display: inline-block; flex-shrink: 0; }
+  .kpis { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .tile { border: 1px solid var(--rule); border-radius: 12px; padding: 18px; display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .tile-label { font-size: 13px; font-weight: 600; color: var(--ink-2); }
+  .tile-value { font-family: var(--display); font-weight: 700; font-size: 28px; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+  .tile-note { font-size: 14px; color: var(--ink-2); }
+
+  /* pace strip */
+  .pace { border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); padding: 24px 0; display: flex; flex-wrap: wrap; align-items: center; gap: 16px 40px; }
+  .pace-label { font-size: 15px; font-weight: 600; color: var(--ink-2); flex: 1 1 200px; }
+  .pace-item { display: flex; flex-direction: column; gap: 2px; min-width: 120px; }
+  .pace-item .v { font-family: var(--display); font-weight: 700; font-size: 24px; font-variant-numeric: tabular-nums; }
+  .pace-item .l { font-size: 14px; color: var(--ink-2); }
+
+  /* chart */
+  .chart-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+  .tabs { display: flex; gap: 6px; padding: 4px; border-radius: 10px; background: var(--chip); }
+  .tab { min-height: 44px; padding: 0 16px; border-radius: 7px; border: 0; font-size: 15px; font-weight: 700; cursor: pointer; background: transparent; color: var(--ink); }
+  .tab[aria-pressed="true"] { background: var(--ink); color: #fff; }
+  .chart-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: stretch; margin-top: 20px; }
+  .chart-box { flex: 1 1 620px; min-width: 0; }
+  #chart { display: block; width: 100%; touch-action: pan-y; cursor: crosshair; }
+  #chart text { font-family: var(--body); font-size: 12.5px; fill: var(--ink-2); }
+  #chart .lbl { font-family: var(--display); font-weight: 700; font-size: 13px; fill: var(--ink); }
+  .chart-empty { min-height: 240px; display: flex; align-items: center; justify-content: center; text-align: center; padding: 24px; border: 1px dashed var(--neutral-bar); border-radius: 12px; color: var(--ink-2); font-size: 15px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; margin-top: 12px; font-size: 13px; color: var(--ink-2); }
+  .legend span { display: inline-flex; align-items: center; gap: 8px; }
+  .key { width: 14px; height: 12px; border-radius: 2px; display: inline-block; }
+  .key.line { height: 0; border-top: 3px solid var(--amber); border-radius: 0; }
+  .key.dash { height: 0; border-top: 2px dashed var(--ink); border-radius: 0; }
+  .key.live { height: 0; border-top: 3px dotted var(--amber); border-radius: 0; }
+  .detail { flex: 1 1 300px; max-width: 100%; border: 1px solid var(--rule); border-radius: 12px; padding: 22px; display: flex; flex-direction: column; gap: 16px; }
+  .detail-title { font-family: var(--display); font-weight: 600; font-size: 21px; }
+  dl.facts { margin: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 10px 16px; font-size: 15px; }
+  dl.facts dt { color: var(--ink-2); }
+  dl.facts dd { margin: 0; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+  .detail-note { font-size: 13.5px; color: var(--ink-2); border-top: 1px solid var(--rule); padding-top: 12px; }
+  .steppers { display: flex; gap: 8px; margin-top: auto; }
+  .stepper { flex: 1; min-height: 44px; border-radius: 8px; border: 1px solid var(--neutral-bar); background: #fff; font-weight: 600; font-size: 15px; cursor: pointer; }
+  .stepper:disabled { color: #9a9995; cursor: default; }
+
+  /* scenario */
+  .scenario { background: var(--panel); border-radius: 16px; padding: 32px; display: flex; flex-direction: column; gap: 24px; }
+  .scn-row { display: flex; flex-wrap: wrap; gap: 32px; }
+  .scn-controls { flex: 1 1 420px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+  .scn-price { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+  .scn-price label { font-size: 15px; font-weight: 700; }
+  .scn-price output { font-family: var(--display); font-weight: 700; font-size: 34px; font-variant-numeric: tabular-nums; }
+  #scn-range { width: 100%; height: 44px; margin: 0; accent-color: var(--amber); cursor: pointer; }
+  .range-scale { display: flex; justify-content: space-between; font-size: 12.5px; color: var(--ink-2); margin-top: -10px; }
+  .presets { display: flex; flex-wrap: wrap; gap: 8px; }
+  .preset { min-height: 44px; padding: 0 14px; border-radius: 999px; border: 1px solid var(--neutral-bar); background: #fff; font-size: 14px; font-weight: 700; cursor: pointer; }
+  .preset[aria-pressed="true"] { background: var(--ink); border-color: var(--ink); color: #fff; }
+  .compare { display: grid; grid-template-columns: 130px minmax(0, 1fr) 76px; align-items: center; gap: 10px; font-size: 14px; }
+  .track { height: 18px; background: var(--rule); border-radius: 3px; overflow: hidden; }
+  .fill { height: 18px; border-radius: 3px; width: 0; transition: width 120ms linear; }
+  .scn-out { flex: 1 1 340px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; align-content: start; }
+  .scn-out .tile { background: #fff; border: 0; }
+  .scn-out .tile-value { font-size: 24px; }
+  .scn-out .wide { grid-column: 1 / -1; border: 2px solid var(--amber); }
+  .scn-out .wide .tile-value { font-size: 32px; }
+
+  /* pipeline */
+  .health { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; margin-top: 20px; }
+  .health .tile-value { font-size: 21px; display: flex; align-items: center; gap: 8px; }
+  .table-wrap { margin-top: 16px; border: 1px solid var(--rule); border-radius: 12px; overflow-x: auto; }
+  table { width: 100%; min-width: 640px; border-collapse: collapse; font-size: 15px; font-variant-numeric: tabular-nums; }
+  caption { text-align: left; padding: 14px 18px 0; font-weight: 700; font-size: 15px; }
+  th { text-align: right; padding: 12px 18px; background: var(--chip); font-size: 12.5px; font-weight: 700; color: var(--ink-2); text-transform: uppercase; letter-spacing: 0.06em; }
+  td { text-align: right; padding: 12px 18px; border-top: 1px solid var(--rule); }
+  th:first-child, td:first-child { text-align: left; }
+  td.sel { background: var(--amber-tint); }
+  .tag { font-size: 13px; color: var(--ink-2); }
+
+  /* methodology */
+  .method { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap: 32px; border-top: 1px solid var(--rule); padding-top: 40px; }
+  .method p { margin: 0; font-size: 15px; line-height: 1.6; color: var(--ink-2); }
+  .formula { font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 14px; line-height: 1.7; background: var(--panel); border-radius: 8px; padding: 14px 16px; }
+  footer { border-top: 1px solid var(--rule); padding-top: 20px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; font-size: 13.5px; color: var(--ink-2); }
+
+  @media (max-width: 760px) {
+    .wrap { padding-left: 16px; padding-right: 16px; }
+    .tab { padding: 0 10px; font-size: 14px; }
+    main { gap: 44px; padding-top: 28px; }
+    .kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .tile-value { font-size: 22px; }
+    .scenario { padding: 20px 16px; }
+    .compare { grid-template-columns: 96px minmax(0, 1fr) 68px; }
+    h2 { font-size: 22px; }
+  }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-in">
+    <div class="brand">
+      <span class="wordmark">Greenline Insights</span>
+      <span class="sep" aria-hidden="true"></span>
+      <span class="name">Iran War Cost Tracker</span>
+    </div>
+    <div class="top-meta">
+      <span class="pill"><span class="dot" aria-hidden="true"></span><b>Live</b><span id="war-day">Day –</span></span>
+      <span id="data-through">Loading data…</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+  <div id="error" class="banner" role="status" hidden></div>
+
+  <section class="hero" aria-labelledby="tab-heading">
+    <div class="hero-main">
+      <div class="eyebrow" id="tab-heading">The running tab</div>
+      <div class="ticker" id="ticker" aria-hidden="true">$–</div>
+      <p class="lede">Additional U.S. petroleum spending since February 27, 2026, above what Americans would have paid at the EIA’s pre-war baseline of $58 per barrel Brent.</p>
+      <div class="chips">
+        <span class="chip amber"><span class="swatch" aria-hidden="true"></span><b class="num" id="since-open">+$0</b><span class="muted">since you opened this page</span></span>
+        <span class="chip"><b class="num" id="rate-sec">–</b><span class="muted">every second</span></span>
+      </div>
+    </div>
+    <div class="kpis">
+      <div class="tile"><div class="tile-label" id="kpi-price-label">Brent spot</div><div class="tile-value" id="kpi-price">–</div><div class="tile-note"><b class="num" id="kpi-pct">–</b> vs $58 baseline</div></div>
+      <div class="tile"><div class="tile-label">Per U.S. household</div><div class="tile-value" id="kpi-hh">–</div><div class="tile-note">Household share, live</div></div>
+      <div class="tile"><div class="tile-label">Annualized pace</div><div class="tile-value" id="kpi-annual">–</div><div class="tile-note">per year at the latest price</div></div>
+      <div class="tile"><div class="tile-label">Days counted</div><div class="tile-value" id="kpi-days">–</div><div class="tile-note">since Feb 27, 2026</div></div>
+    </div>
+  </section>
+
+  <section class="pace" aria-label="Current pace">
+    <div class="pace-label" id="pace-label">At the latest Brent price, the tab grows by</div>
+    <div class="pace-item"><span class="v" id="pace-min">–</span><span class="l">per minute</span></div>
+    <div class="pace-item"><span class="v" id="pace-hour">–</span><span class="l">per hour</span></div>
+    <div class="pace-item"><span class="v" id="pace-day">–</span><span class="l">per day</span></div>
+    <div class="pace-item"><span class="v" id="pace-week">–</span><span class="l">per week</span></div>
+  </section>
+
+  <section aria-labelledby="chart-h">
+    <div class="chart-head">
+      <div class="sec-head">
+        <h2 id="chart-h">How the tab has grown</h2>
+        <p id="chart-caption"></p>
+      </div>
+      <div class="tabs" role="group" aria-label="Chart metric">
+        <button type="button" class="tab" data-mode="total" aria-pressed="true">Running tab</button>
+        <button type="button" class="tab" data-mode="price" aria-pressed="false">Brent price</button>
+        <button type="button" class="tab" data-mode="added" aria-pressed="false">Added per day</button>
+      </div>
+    </div>
+    <div class="chart-row">
+      <div class="chart-box" id="chart-box">
+        <svg id="chart" tabindex="0" role="img" aria-label="Chart"></svg>
+        <div class="chart-empty" id="chart-empty" hidden>The daily chart appears after the pipeline publishes history.json on its next run.</div>
+        <div class="legend" id="legend"></div>
+      </div>
+      <aside class="detail" aria-labelledby="d-title">
+        <div>
+          <div class="eyebrow" id="d-eyebrow">Selected day</div>
+          <div class="detail-title" id="d-title">–</div>
+        </div>
+        <dl class="facts">
+          <dt>Brent spot</dt><dd id="d-price">–</dd>
+          <dt>Above baseline</dt><dd id="d-pct">–</dd>
+          <dt>Added that day</dt><dd id="d-added">–</dd>
+          <dt>Running tab</dt><dd id="d-total">–</dd>
+          <dt>Per household</dt><dd id="d-hh">–</dd>
+        </dl>
+        <div class="detail-note" id="d-note">Hover, tap or use the arrow keys on the chart to pick a day.</div>
+        <div class="steppers">
+          <button type="button" class="stepper" id="d-prev">← Previous day</button>
+          <button type="button" class="stepper" id="d-next">Next day →</button>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <section class="scenario" aria-labelledby="scn-h">
+    <div class="sec-head">
+      <h2 id="scn-h">What if Brent moved?</h2>
+      <p>Test any price against the same formula the live tab uses: $435,467M × (price ÷ $58 − 1) per year, floored at zero below the baseline.</p>
+    </div>
+    <div class="scn-row">
+      <div class="scn-controls">
+        <div class="scn-price"><label for="scn-range">Brent price, $/bbl</label><output id="scn-price" for="scn-range">–</output></div>
+        <input id="scn-range" type="range" min="40" max="160" step="0.01" value="100">
+        <div class="range-scale" aria-hidden="true"><span>$40</span><span>$100</span><span>$160</span></div>
+        <div class="presets" id="presets" role="group" aria-label="Price presets"></div>
+        <div style="display: flex; flex-direction: column; gap: 10px; margin-top: 6px">
+          <div class="tile-label">Added spending per year</div>
+          <div class="compare">
+            <div class="muted" id="cmp-today-label">Latest</div>
+            <div class="track"><div class="fill" id="cmp-today" style="background: var(--ink-2)"></div></div>
+            <div class="num" style="font-weight: 700; text-align: right" id="cmp-today-v">–</div>
+            <div class="muted" id="cmp-scn-label">Scenario</div>
+            <div class="track"><div class="fill" id="cmp-scn" style="background: var(--amber)"></div></div>
+            <div class="num" style="font-weight: 700; text-align: right" id="cmp-scn-v">–</div>
+          </div>
+        </div>
+      </div>
+      <div class="scn-out">
+        <div class="tile"><div class="tile-label">Per second</div><div class="tile-value" id="scn-sec">–</div></div>
+        <div class="tile"><div class="tile-label">Per day</div><div class="tile-value" id="scn-day">–</div></div>
+        <div class="tile"><div class="tile-label">Per household, per year</div><div class="tile-value" id="scn-hh">–</div></div>
+        <div class="tile"><div class="tile-label">Pace vs latest</div><div class="tile-value" id="scn-ratio">–</div></div>
+        <div class="tile wide">
+          <div class="tile-label" id="scn-ye-label">Running tab at year end if Brent holds</div>
+          <div class="tile-value" id="scn-ye">–</div>
+          <div class="tile-note" id="scn-floor" hidden style="color: var(--ink)">Below the $58 baseline the tab stops growing. Sub-baseline days add $0; the tab never counts down.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-labelledby="pipe-h">
+    <div class="sec-head">
+      <h2 id="pipe-h">Pipeline health</h2>
+      <p>A daily GitHub Action pulls EIA Brent spot prices, recomputes the whole series from scratch, and publishes the data behind this page.</p>
+    </div>
+    <div class="health">
+      <div class="tile">
+        <div class="tile-label">Feed status</div>
+        <div class="tile-value" id="st-status">
+          <svg id="st-ok" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M7.5 12.5l3 3 6-6.5"/></svg>
+          <svg id="st-warn" hidden width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l10 18H2z"/><path d="M12 10v5"/><path d="M12 18h.01"/></svg>
+          <span id="st-label">–</span>
+        </div>
+        <div class="tile-note" id="st-note"></div>
+      </div>
+      <div class="tile"><div class="tile-label">Newest EIA observation</div><div class="tile-value" id="st-obs">–</div><div class="tile-note" id="st-lag"></div></div>
+      <div class="tile"><div class="tile-label">Last data rebuild</div><div class="tile-value" id="st-built">–</div><div class="tile-note">Commits only when data changes</div></div>
+      <div class="tile"><div class="tile-label">Next scheduled run</div><div class="tile-value" id="st-next">–</div><div class="tile-note" id="st-next-in"></div></div>
+      <div class="tile"><div class="tile-label">Methodology</div><div class="tile-value" id="st-method">–</div><div class="tile-note">Negative days floored at $0</div></div>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <caption>Last 14 days in the series</caption>
+        <thead><tr><th scope="col">Date</th><th scope="col">Brent</th><th scope="col">Price source</th><th scope="col">Added</th><th scope="col">Running tab</th></tr></thead>
+        <tbody id="recent"><tr><td colspan="5" style="text-align: left" class="muted">Appears once history.json is published.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="method" aria-labelledby="method-h">
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <h2 id="method-h" style="font-size: 22px">How the number is built</h2>
+      <p>Every calendar day since February 27, 2026 carries the most recent EIA daily Brent spot price; weekends and holidays inherit the prior trading day. Each day adds one 365th of the implied annual excess spending. The live ticker counts forward from midnight Eastern after the newest observation at the latest per-second rate.</p>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 10px">
+      <div class="tile-label">Daily damage</div>
+      <div class="formula">max(0, $435,467M × (Brent ÷ $58 − 1)) ÷ 365</div>
+      <div class="tile-label">Live rate</div>
+      <div class="formula">max(0, $435,467M × (latest ÷ $58 − 1)) ÷ 31,536,000 s</div>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 12px">
+      <h3>Sources</h3>
+      <p>Baseline: EIA February 2026 Short-Term Energy Outlook ($58/bbl 2026 Brent, $435,467M U.S. petroleum expenditures). Prices: EIA Europe Brent spot, series RBRTE. Household share: Greenline Insights IMPLAN model.</p>
+    </div>
+  </section>
+
+  <footer>
+    <div>© <span id="yr">2026</span> Greenline Insights</div>
+    <div id="footer-built">Pilot dashboard</div>
+  </footer>
+</main>
+
+<script>
+(function () {
+  'use strict';
+
+  // Model constants — must match build.js.
+  var BASELINE = 58;
+  var ANNUAL_EXPENDITURE = 435467e6;
+  var SECONDS_PER_YEAR = 31536000;
+  var WAR_START_MS = Date.parse('2026-02-27T00:00:00-05:00');
+  var FETCH_TIMEOUT_MS = 5000;
+  var CACHE_KEY = 'gl-dashboard-tracker-v1';
+  var MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  var SVGNS = 'http://www.w3.org/2000/svg';
+
+  var $ = function (id) { return document.getElementById(id); };
+  var openedAt = Date.now();
+
+  var T = null;          // parsed tracker.json
+  var days = null;       // parsed history.json rows, or null
+  var mode = 'total';
+  var sel = null;        // selected day index into days
+  var scenario = null;   // scenario Brent price
+
+  // ---------------------------------------------------------------------
+  // Formatting
+  // ---------------------------------------------------------------------
+  function usd(n, d) {
+    return '$' + n.toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  }
+  function big(n, d) {
+    var a = Math.abs(n);
+    if (a >= 1e12) return '$' + (n / 1e12).toFixed(d) + 'T';
+    if (a >= 1e9) return '$' + (n / 1e9).toFixed(d) + 'B';
+    if (a >= 1e6) return '$' + (n / 1e6).toFixed(d) + 'M';
+    return usd(n, 0);
+  }
+  function shortDate(s) { var p = s.split('-'); return MONTHS[+p[1] - 1] + ' ' + (+p[2]); }
+  function longDate(s) { return shortDate(s) + ', ' + s.slice(0, 4); }
+  function stamp(ms) { var iso = new Date(ms).toISOString(); return shortDate(iso.slice(0, 10)) + ', ' + iso.slice(11, 16) + ' UTC'; }
+  function annualAt(p) { return Math.max(0, ANNUAL_EXPENDITURE * (p / BASELINE - 1)); }
+  function setText(id, v) { var el = $(id); if (el) el.textContent = v; }
+
+  // ---------------------------------------------------------------------
+  // Data
+  // ---------------------------------------------------------------------
+  function getJSON(url) {
+    var ctrl = new AbortController();
+    var t = setTimeout(function () { ctrl.abort(); }, FETCH_TIMEOUT_MS);
+    return fetch(url, { signal: ctrl.signal, cache: 'no-cache' })
+      .then(function (r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .finally(function () { clearTimeout(t); });
+  }
+
+  function parseTracker(raw) {
+    var keys = ['last_price_date', 'latest_price_usd_bbl', 'pct_above_baseline', 'anchor_iso',
+      'anchor_total_usd', 'rate_per_second_usd', 'household_factor'];
+    if (!raw || !keys.every(function (k) { return typeof raw[k] === 'string' && raw[k].length; })) return null;
+    var t = {
+      raw: raw,
+      lastDate: raw.last_price_date,
+      price: Number(raw.latest_price_usd_bbl),
+      pct: Number(raw.pct_above_baseline),
+      anchorMs: new Date(raw.anchor_iso).getTime(),
+      anchorTotal: Number(raw.anchor_total_usd),
+      rate: Number(raw.rate_per_second_usd),
+      factor: Number(raw.household_factor),
+      builtMs: raw.generated_at ? Date.parse(raw.generated_at) : NaN,
+      version: raw.methodology_version || '–'
+    };
+    return [t.price, t.anchorMs, t.anchorTotal, t.rate, t.factor].every(Number.isFinite) ? t : null;
+  }
+
+  function parseHistory(raw) {
+    if (!raw || !Array.isArray(raw.days) || !Array.isArray(raw.fields)) return null;
+    var f = raw.fields;
+    var ix = {}; f.forEach(function (k, i) { ix[k] = i; });
+    if (!['date', 'price_usd_bbl', 'observed', 'added_usd', 'cumulative_usd'].every(function (k) { return k in ix; })) return null;
+    var rows = raw.days.map(function (r) {
+      return { date: r[ix.date], price: r[ix.price_usd_bbl], observed: r[ix.observed], added: r[ix.added_usd], cum: r[ix.cumulative_usd] };
+    });
+    return rows.length ? rows : null;
+  }
+
+  function liveTotal(now) { return T.anchorTotal + T.rate * Math.max(0, (now - T.anchorMs) / 1000); }
+
+  // ---------------------------------------------------------------------
+  // Static (per data load) rendering
+  // ---------------------------------------------------------------------
+  function renderSummary() {
+    setText('data-through', 'Brent data through ' + longDate(T.lastDate));
+    setText('rate-sec', usd(T.rate, 2));
+    setText('kpi-price-label', 'Brent spot, ' + shortDate(T.lastDate));
+    setText('kpi-price', usd(T.price, 2));
+    setText('kpi-pct', (T.pct >= 0 ? '+' : '') + T.pct.toFixed(1) + '%');
+    setText('kpi-annual', big(annualAt(T.price), 1));
+    setText('pace-label', 'At $' + T.price.toFixed(2) + ' Brent, the tab grows by');
+    setText('pace-min', usd(T.rate * 60, 0));
+    setText('pace-hour', big(T.rate * 3600, 1));
+    setText('pace-day', big(T.rate * 86400, 2));
+    setText('pace-week', big(T.rate * 604800, 2));
+    setText('st-obs', longDate(T.lastDate));
+    setText('st-built', Number.isFinite(T.builtMs) ? stamp(T.builtMs) : '–');
+    setText('st-method', 'v' + T.version);
+    setText('footer-built', Number.isFinite(T.builtMs) ? 'Data rebuilt ' + stamp(T.builtMs) : 'Pilot dashboard');
+    setText('cmp-today-label', 'Latest (' + usd(T.price, 2) + ')');
+    setText('cmp-today-v', big(annualAt(T.price), 1));
+    if (scenario === null) scenario = T.price;
+    renderPresets();
+    renderScenario();
+    renderStatus();
+  }
+
+  function renderStatus() {
+    var now = Date.now();
+    var lag = Math.floor((now - Date.parse(T.lastDate + 'T12:00:00Z')) / 864e5);
+    var ok = lag <= 5;
+    var label = ok ? 'Current' : (lag <= 10 ? 'Delayed' : 'Stale');
+    $('st-status').style.color = ok ? 'var(--green-500)' : (lag <= 10 ? 'var(--amber-600)' : 'var(--critical)');
+    $('st-ok').hidden = !ok;
+    $('st-warn').hidden = ok;
+    setText('st-label', label);
+    setText('st-note', ok ? 'Within EIA’s usual publication lag' : 'No new EIA prices in ' + lag + ' days');
+    setText('st-lag', lag + (lag === 1 ? ' day' : ' days') + ' behind today');
+    var d = new Date(now);
+    var next = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), 9, 17);
+    if (next <= now) next += 864e5;
+    var mins = Math.floor((next - now) / 60000);
+    setText('st-next', stamp(next));
+    setText('st-next-in', 'in ' + Math.floor(mins / 60) + 'h ' + (mins % 60) + 'm · daily at 09:17 UTC');
+    setText('war-day', 'Day ' + (Math.floor((now - WAR_START_MS) / 864e5) + 1) + ' of the war');
+    setText('kpi-days', String(Math.floor((now - WAR_START_MS) / 864e5) + 1));
+  }
+
+  // ---------------------------------------------------------------------
+  // Live tick
+  // ---------------------------------------------------------------------
+  function tick() {
+    if (T) {
+      var now = Date.now();
+      var total = liveTotal(now);
+      setText('ticker', usd(total, 0));
+      setText('kpi-hh', usd(total * T.factor, 2));
+      setText('since-open', '+' + usd(T.rate * Math.max(0, (now - openedAt) / 1000), 0));
+    }
+    requestAnimationFrame(tick);
+  }
+
+  // ---------------------------------------------------------------------
+  // Scenario
+  // ---------------------------------------------------------------------
+  function presetList() {
+    var list = [{ label: '$58 baseline', v: 58 }, { label: '$80', v: 80 }, { label: 'Latest ' + usd(T.price, 2), v: T.price }];
+    if (days) {
+      var peak = days.reduce(function (m, d) { return d.price > m.price ? d : m; }, days[0]);
+      if (Math.abs(peak.price - T.price) > 0.005) list.push({ label: 'Peak ' + usd(peak.price, 2) + ' (' + shortDate(peak.date) + ')', v: peak.price });
+    }
+    list.push({ label: '$150', v: 150 });
+    return list;
+  }
+
+  function renderPresets() {
+    var box = $('presets');
+    box.textContent = '';
+    presetList().forEach(function (p) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'preset';
+      b.textContent = p.label;
+      b.dataset.v = String(p.v);
+      b.addEventListener('click', function () { scenario = p.v; renderScenario(); });
+      box.appendChild(b);
+    });
+  }
+
+  function renderScenario() {
+    var p = scenario;
+    var now = Date.now();
+    var annual = annualAt(p);
+    var perSec = annual / SECONDS_PER_YEAR;
+    var annualLatest = annualAt(T.price);
+    var maxAnnual = annualAt(160);
+    var year = new Date(now).getUTCFullYear();
+    var yearEndMs = Date.parse((year + 1) + '-01-01T00:00:00-05:00');
+    $('scn-range').value = String(p);
+    setText('scn-price', usd(p, 2));
+    setText('cmp-scn-label', 'At ' + usd(p, 2));
+    setText('cmp-scn-v', big(annual, 1));
+    $('cmp-today').style.width = (annualLatest / maxAnnual * 100).toFixed(1) + '%';
+    $('cmp-scn').style.width = (annual / maxAnnual * 100).toFixed(1) + '%';
+    setText('scn-sec', usd(perSec, 2));
+    setText('scn-day', big(annual / 365, 2));
+    setText('scn-hh', usd(annual * T.factor, 0));
+    setText('scn-ratio', annual === 0 ? 'Paused' : annualLatest === 0 ? '–' : (annual / annualLatest).toFixed(2) + '×');
+    setText('scn-ye-label', 'Running tab on Jan 1, ' + (year + 1) + ' if Brent holds at ' + usd(p, 2));
+    setText('scn-ye', big(liveTotal(now) + perSec * Math.max(0, (yearEndMs - now) / 1000), 1));
+    $('scn-floor').hidden = p > BASELINE;
+    Array.prototype.forEach.call(document.querySelectorAll('.preset'), function (b) {
+      b.setAttribute('aria-pressed', String(Math.abs(Number(b.dataset.v) - p) < 0.005));
+    });
+  }
+
+  // ---------------------------------------------------------------------
+  // Chart (SVG)
+  // ---------------------------------------------------------------------
+  var CAPTIONS = {
+    total: 'Cumulative added spending through each calendar day, with the live tick past the last observed price.',
+    price: 'Daily Brent spot, forward-filled across weekends and holidays. Only the slice above $58 adds to the tab.',
+    added: 'Added spending each calendar day. Days with Brent at or below $58 add $0.'
+  };
+
+  function niceStep(range, target) {
+    var raw = range / target;
+    var mag = Math.pow(10, Math.floor(Math.log10(raw)));
+    var f = raw / mag;
+    var step = f <= 1 ? 1 : f <= 2 ? 2 : f <= 2.5 ? 2.5 : f <= 5 ? 5 : 10;
+    return step * mag;
+  }
+
+  function el(name, attrs, parent) {
+    var e = document.createElementNS(SVGNS, name);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (parent) parent.appendChild(e);
+    return e;
+  }
+
+  var geom = null; // last drawn geometry, for hit testing
+
+  function drawChart() {
+    var svg = $('chart');
+    setText('chart-caption', CAPTIONS[mode]);
+    renderLegend();
+    if (!days) { svg.style.display = 'none'; $('chart-empty').hidden = false; return; }
+    svg.style.display = '';
+    $('chart-empty').hidden = true;
+
+    var W = Math.max(300, $('chart-box').clientWidth);
+    var H = W < 600 ? 240 : 300;
+    var m = { l: W < 600 ? 52 : 64, r: 16, t: 20, b: 30 };
+    var pw = W - m.l - m.r, ph = H - m.t - m.b;
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + H);
+    svg.setAttribute('width', W);
+    svg.setAttribute('height', H);
+    svg.textContent = '';
+
+    var n = days.length;
+    var now = Date.now();
+    var live = liveTotal(now);
+    var extra = mode === 'total' ? Math.min(30, Math.max(0, (now - T.anchorMs) / 864e5)) : 0;
+    var tMax = n + extra;
+    var x = function (t) { return m.l + (t / tMax) * pw; };
+
+    var yMin = 0, yMax;
+    if (mode === 'total') yMax = Math.max(live, days[n - 1].cum);
+    else if (mode === 'added') yMax = Math.max.apply(null, days.map(function (d) { return d.added; })) || 1;
+    else {
+      var ps = days.map(function (d) { return d.price; });
+      yMax = Math.max.apply(null, ps.concat([BASELINE]));
+      yMin = Math.min.apply(null, ps.concat([BASELINE]));
+    }
+    var step = niceStep(yMax - yMin, 4);
+    yMax = Math.ceil(yMax / step) * step;
+    yMin = Math.max(0, Math.floor(yMin / step) * step - (mode === 'price' ? step : 0));
+    var y = function (v) { return m.t + ph - ((v - yMin) / (yMax - yMin)) * ph; };
+    var fmtAxis = mode === 'price'
+      ? function (v) { return '$' + Math.round(v); }
+      : function (v) { return v === 0 ? '$0' : big(v, v >= 1e9 && step < 1e9 ? 1 : 0); };
+
+    // gridlines + y labels
+    for (var g = yMin; g <= yMax + step / 1000; g += step) {
+      el('line', { x1: m.l, x2: W - m.r, y1: y(g), y2: y(g), stroke: g === yMin ? '#111111' : '#e6e5e2', 'stroke-width': 1 }, svg);
+      var tl = el('text', { x: m.l - 8, y: y(g) + 4, 'text-anchor': 'end' }, svg);
+      tl.textContent = fmtAxis(g);
+    }
+    // month ticks
+    days.forEach(function (d, i) {
+      if (d.date.slice(8) !== '01') return;
+      el('line', { x1: x(i), x2: x(i), y1: m.t + ph, y2: m.t + ph + 5, stroke: '#111111' }, svg);
+      var t = el('text', { x: x(i) + 4, y: m.t + ph + 20 }, svg);
+      t.textContent = MONTHS[+d.date.slice(5, 7) - 1];
+    });
+
+    var path = function (pts) { return pts.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(''); };
+    var pts, valAt, xAt;
+
+    if (mode === 'total') {
+      pts = [[x(0), y(0)]].concat(days.map(function (d, i) { return [x(i + 1), y(d.cum)]; }));
+      el('path', { d: path(pts) + 'L' + x(n) + ' ' + y(0) + 'Z', fill: '#fbf1e1' }, svg);
+      el('path', { d: path(pts), fill: 'none', stroke: '#cf7d00', 'stroke-width': 2.5, 'stroke-linejoin': 'round' }, svg);
+      if (extra > 0) {
+        el('path', { d: 'M' + x(n) + ' ' + y(days[n - 1].cum) + 'L' + x(tMax) + ' ' + y(live), fill: 'none', stroke: '#cf7d00', 'stroke-width': 2.5, 'stroke-dasharray': '2 4', 'stroke-linecap': 'round' }, svg);
+      }
+      el('circle', { cx: x(tMax), cy: y(live), r: 5, fill: '#cf7d00', stroke: '#ffffff', 'stroke-width': 2 }, svg);
+      var nl = el('text', { x: x(tMax) - 10, y: y(live) - 10, 'text-anchor': 'end', 'class': 'lbl' }, svg);
+      nl.textContent = 'Now ' + big(live, 1);
+      valAt = function (i) { return days[i].cum; };
+      xAt = function (i) { return x(i + 1); };
+    } else if (mode === 'price') {
+      var step2 = [];
+      days.forEach(function (d, i) { step2.push([x(i), y(d.price)], [x(i + 1), y(d.price)]); });
+      var above = [];
+      days.forEach(function (d, i) { var v = Math.max(d.price, BASELINE); above.push([x(i), y(v)], [x(i + 1), y(v)]); });
+      el('path', { d: path(above) + 'L' + x(n) + ' ' + y(BASELINE) + 'L' + x(0) + ' ' + y(BASELINE) + 'Z', fill: '#fbf1e1' }, svg);
+      el('line', { x1: m.l, x2: W - m.r, y1: y(BASELINE), y2: y(BASELINE), stroke: '#111111', 'stroke-width': 1.5, 'stroke-dasharray': '6 4' }, svg);
+      var bl = el('text', { x: W - m.r, y: y(BASELINE) + 16, 'text-anchor': 'end', 'class': 'lbl' }, svg);
+      bl.textContent = '$58 pre-war baseline';
+      el('path', { d: path(step2), fill: 'none', stroke: '#cf7d00', 'stroke-width': 2, 'stroke-linejoin': 'round' }, svg);
+      valAt = function (i) { return days[i].price; };
+      xAt = function (i) { return x(i + 0.5); };
+    } else {
+      var bw = Math.max(1, pw / tMax - (pw / tMax > 4 ? 1 : 0));
+      days.forEach(function (d, i) {
+        if (d.added <= 0) return;
+        el('rect', { x: x(i).toFixed(1), y: y(d.added).toFixed(1), width: bw.toFixed(1), height: (y(0) - y(d.added)).toFixed(1), fill: '#cf7d00' }, svg);
+      });
+      valAt = function (i) { return days[i].added; };
+      xAt = function (i) { return x(i + 0.5); };
+    }
+
+    // selection marker
+    var i = sel;
+    var sx = xAt(i), sy = y(valAt(i));
+    el('line', { x1: sx, x2: sx, y1: m.t, y2: m.t + ph, stroke: '#111111', 'stroke-width': 1 }, svg);
+    el('circle', { cx: sx, cy: sy, r: 5, fill: '#111111', stroke: '#ffffff', 'stroke-width': 2 }, svg);
+
+    geom = { x0: m.l, pw: pw, tMax: tMax, n: n };
+    svg.setAttribute('aria-label', chartLabel());
+  }
+
+  function chartLabel() {
+    var a = days[0], b = days[days.length - 1];
+    if (mode === 'total') return 'Running tab from ' + longDate(a.date) + ' to ' + longDate(b.date) + ', reaching ' + big(b.cum, 1) + '. Use arrow keys to select a day.';
+    if (mode === 'price') return 'Daily Brent price from ' + longDate(a.date) + ' to ' + longDate(b.date) + ' against the $58 baseline. Use arrow keys to select a day.';
+    return 'Added spending per day from ' + longDate(a.date) + ' to ' + longDate(b.date) + '. Use arrow keys to select a day.';
+  }
+
+  function renderLegend() {
+    var lg = $('legend');
+    lg.textContent = '';
+    var items = mode === 'total'
+      ? [['line', 'Running tab, end of each day'], ['live', 'Live tick past the last price']]
+      : mode === 'price'
+        ? [['line', 'Brent spot'], ['dash', '$58 baseline'], ['area', 'Above baseline (adds to the tab)']]
+        : [['bar', 'Added that day']];
+    items.forEach(function (it) {
+      var s = document.createElement('span');
+      var k = document.createElement('span');
+      k.className = 'key ' + (it[0] === 'area' ? '' : it[0] === 'bar' ? '' : it[0]);
+      if (it[0] === 'area') k.style.background = '#fbf1e1', k.style.border = '1px solid #e8a94d';
+      if (it[0] === 'bar') k.style.background = '#cf7d00';
+      s.appendChild(k);
+      s.appendChild(document.createTextNode(it[1]));
+      lg.appendChild(s);
+    });
+  }
+
+  function select(i) {
+    if (!days) return;
+    sel = Math.max(0, Math.min(days.length - 1, i));
+    drawChart();
+    renderDetail();
+    renderRecent();
+  }
+
+  function renderDetail() {
+    if (!days) {
+      setText('d-eyebrow', 'Latest observation');
+      setText('d-title', longDate(T.lastDate));
+      setText('d-price', usd(T.price, 2));
+      setText('d-pct', (T.pct >= 0 ? '+' : '') + T.pct.toFixed(2) + '%');
+      setText('d-added', big(Math.max(0, annualAt(T.price) / 365), 2));
+      setText('d-total', usd(T.anchorTotal, 0));
+      setText('d-hh', usd(T.anchorTotal * T.factor, 2));
+      setText('d-note', 'Day-by-day detail appears once history.json is published.');
+      $('d-prev').disabled = true;
+      $('d-next').disabled = true;
+      return;
+    }
+    var d = days[sel];
+    var prevObs = null;
+    if (!d.observed) for (var j = sel - 1; j >= 0; j--) if (days[j].observed) { prevObs = days[j].date; break; }
+    setText('d-eyebrow', 'Day ' + (sel + 1) + ' of ' + days.length);
+    setText('d-title', longDate(d.date));
+    var pct = (d.price / BASELINE - 1) * 100;
+    setText('d-price', usd(d.price, 2));
+    setText('d-pct', (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%');
+    setText('d-added', '+' + big(d.added, 2));
+    setText('d-total', usd(d.cum, 0));
+    setText('d-hh', usd(d.cum * T.factor, 2));
+    setText('d-note', d.observed
+      ? 'EIA trading-day observation.'
+      : prevObs ? 'No trading that day; price carried forward from ' + longDate(prevObs) + '.'
+        : 'Before the first observation; price backfilled from it.');
+    $('d-prev').disabled = sel === 0;
+    $('d-next').disabled = sel === days.length - 1;
+  }
+
+  function renderRecent() {
+    if (!days) return;
+    var body = $('recent');
+    body.textContent = '';
+    for (var i = days.length - 1; i >= Math.max(0, days.length - 14); i--) {
+      var d = days[i];
+      var tr = document.createElement('tr');
+      var cells = [longDate(d.date), usd(d.price, 2), d.observed ? 'EIA observation' : 'Carried forward', '+' + big(d.added, 2), big(d.cum, 2)];
+      cells.forEach(function (c, k) {
+        var td = document.createElement('td');
+        if (k === 2 && !d.observed) td.className = 'tag';
+        if (i === sel) td.classList.add('sel');
+        td.textContent = c;
+        tr.appendChild(td);
+      });
+      body.appendChild(tr);
+    }
+  }
+
+  // ---------------------------------------------------------------------
+  // Events
+  // ---------------------------------------------------------------------
+  Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (b) {
+    b.addEventListener('click', function () {
+      mode = b.dataset.mode;
+      Array.prototype.forEach.call(document.querySelectorAll('.tab'), function (o) { o.setAttribute('aria-pressed', String(o === b)); });
+      drawChart();
+    });
+  });
+
+  function pointerSelect(e) {
+    if (!days || !geom) return;
+    var r = $('chart').getBoundingClientRect();
+    var px = (e.clientX - r.left) * (r.width ? (Number($('chart').getAttribute('width')) / r.width) : 1);
+    var t = ((px - geom.x0) / geom.pw) * geom.tMax;
+    var i = Math.floor(t);
+    if (mode === 'total') i = Math.round(t) - 1; // cumulative points sit at day ends
+    if (i >= 0 && i < geom.n && i !== sel) select(i);
+  }
+  $('chart').addEventListener('pointermove', pointerSelect);
+  $('chart').addEventListener('pointerdown', pointerSelect);
+  $('chart').addEventListener('keydown', function (e) {
+    if (!days) return;
+    var k = e.key, d = 0;
+    if (k === 'ArrowLeft') d = -1; else if (k === 'ArrowRight') d = 1;
+    else if (k === 'PageUp') d = -7; else if (k === 'PageDown') d = 7;
+    else if (k === 'Home') { e.preventDefault(); return select(0); }
+    else if (k === 'End') { e.preventDefault(); return select(days.length - 1); }
+    else return;
+    e.preventDefault();
+    select(sel + d);
+  });
+  $('d-prev').addEventListener('click', function () { select(sel - 1); });
+  $('d-next').addEventListener('click', function () { select(sel + 1); });
+  $('scn-range').addEventListener('input', function (e) { scenario = Number(e.target.value); renderScenario(); });
+
+  var resizeTimer = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(function () { if (T) drawChart(); }, 100);
+  });
+
+  // Report height to the embedding page (Squarespace iframe snippet).
+  if (window.parent !== window && 'ResizeObserver' in window) {
+    var lastH = 0;
+    new ResizeObserver(function () {
+      var h = Math.ceil(document.documentElement.getBoundingClientRect().height);
+      if (h !== lastH) { lastH = h; window.parent.postMessage({ 'gl-dashboard-height': h }, '*'); }
+    }).observe(document.body);
+  }
+
+  // ---------------------------------------------------------------------
+  // Boot
+  // ---------------------------------------------------------------------
+  function showError(msg) { var b = $('error'); b.textContent = msg; b.hidden = false; }
+
+  function start() {
+    setText('yr', String(new Date().getFullYear()));
+    var cached = null;
+    try { cached = parseTracker(JSON.parse(localStorage.getItem(CACHE_KEY))); } catch (e) { cached = null; }
+
+    Promise.allSettled([getJSON('tracker.json'), getJSON('history.json')]).then(function (res) {
+      var fresh = res[0].status === 'fulfilled' ? parseTracker(res[0].value) : null;
+      if (fresh) {
+        try { localStorage.setItem(CACHE_KEY, JSON.stringify(fresh.raw)); } catch (e) { /* storage blocked */ }
+      }
+      T = fresh || cached;
+      if (!T) { showError('The tracker data could not be loaded. Please try again in a few minutes.'); return; }
+      if (!fresh) showError('Showing the last saved figures; the latest data could not be loaded.');
+      days = res[1].status === 'fulfilled' ? parseHistory(res[1].value) : null;
+      sel = days ? days.length - 1 : null;
+      renderSummary();
+      drawChart();
+      renderDetail();
+      renderRecent();
+      setInterval(renderStatus, 30000);
+    });
+    requestAnimationFrame(tick);
+  }
+
+  start();
+})();
+</script>
+</body>
+</html>

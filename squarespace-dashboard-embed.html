@@ -1,0 +1,35 @@
+<!--
+  Squarespace Code Block for the live tracker dashboard (pilot).
+  Paste this whole file into a Code Block on the page (Edit page → + → Code;
+  leave "Display Source" off). Scripts in Code Blocks run on the published
+  page, not inside the editor preview.
+
+  The dashboard itself lives in this repo at docs/dashboard.html and is served
+  by GitHub Pages; this block only frames it. The page inside the iframe
+  reports its height via postMessage ("gl-dashboard-height") and the script
+  below resizes the iframe to fit, so there is no inner scrollbar. The
+  height in the style attribute is just the placeholder until that message
+  arrives.
+
+  Independent of the header-injection ticker (squarespace-header-injection.html):
+  both can sit on the same page.
+-->
+<div class="gl-dashboard-wrap" style="width: 100%; margin: 0; padding: 0; line-height: 0">
+  <iframe
+    id="gl-dashboard"
+    src="https://greenline-insights.github.io/Iran-War-Cost-Tracker/dashboard.html"
+    title="Iran War Cost Tracker live dashboard"
+    loading="lazy"
+    scrolling="no"
+    style="display: block; width: 100%; height: 3400px; border: 0; margin: 0; padding: 0; overflow: hidden"></iframe>
+</div>
+<script>
+window.addEventListener("message", function (event) {
+  if (event.origin !== "https://greenline-insights.github.io") return;
+  var h = event.data && event.data["gl-dashboard-height"];
+  var frame = document.getElementById("gl-dashboard");
+  if (frame && typeof h === "number" && h > 0 && event.source === frame.contentWindow) {
+    frame.style.height = Math.ceil(h) + "px";
+  }
+});
+</script>
