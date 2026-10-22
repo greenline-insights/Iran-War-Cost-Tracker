@@ -1,12 +1,12 @@
 {
   "methodology_version": "2.0-daily",
-  "generated_at": "2026-10-16T13:57:30.160Z",
-  "last_price_date": "2026-10-14",
-  "latest_price_usd_bbl": "126.55",
-  "pct_above_baseline": "118.19",
-  "anchor_iso": "2026-10-15T00:00:00-04:00",
-  "anchor_total_usd": "207033189242.80",
-  "rate_per_second_usd": "16320.30",
+  "generated_at": "2026-10-22T14:30:30.324Z",
+  "last_price_date": "2026-10-20",
+  "latest_price_usd_bbl": "115.22",
+  "pct_above_baseline": "98.66",
+  "anchor_iso": "2026-10-21T00:00:00-04:00",
+  "anchor_total_usd": "214651907592.35",
+  "rate_per_second_usd": "13622.87",
   "household_factor": "0.00000000545075500193309",
-  "last_updated_display": "October 14th, 2026"
+  "last_updated_display": "October 20th, 2026"
 }
